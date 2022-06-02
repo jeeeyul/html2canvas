@@ -129,11 +129,38 @@ export class DocumentCloner {
             return iframe;
         });
 
+        // 크롬의 경우 사본 노드가 다른 문서에 어댑트 될 때 baseURI가 별도 지정된 경우 캐시 오류가 존재하므로 우회가 필요함.
+        // https://gitlab.exbuilder.co.kr/cleopatra-dev-team/release-test-project/-/issues/7698
+        const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+        let styleBackup:{element:HTMLElement, style: string }[] = [];
+
         documentClone.open();
         documentClone.write(`${serializeDoctype(document.doctype)}<html></html>`);
         // Chrome scrolls the parent document for some reason after the write to the cloned window???
         restoreOwnerScroll(this.referenceElement.ownerDocument, scrollX, scrollY);
+        if(isChrome){
+            // 스타일에 URL이 포함된 노드들을 걸러 냄.
+            let elementsWithURLStyle:HTMLElement[] = Array.prototype.slice.call(
+                this.documentElement.querySelectorAll("[style*='url(']")
+            );
+
+            elementsWithURLStyle.forEach(function(it){
+                styleBackup.push({
+                    element: it,
+                    style: it.getAttribute("style") as string
+                });
+
+                // adoptNode 이후 캐시 간섭을 막기 위해 배경 이미지를 제거 함.
+                it.removeAttribute("style");
+            });	
+        }
         documentClone.replaceChild(documentClone.adoptNode(this.documentElement), documentClone.documentElement);
+        if(isChrome){
+            // 스타일 복원.
+            styleBackup.forEach(function(it){
+                 it.element.setAttribute("style", it.style);
+            });	
+        }
         documentClone.close();
 
         return iframeLoad;
